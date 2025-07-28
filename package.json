@@ -1,0 +1,26 @@
+{
+    "name": "coe-aishub",
+    "type": "module",
+    "private": true,
+    "version": "1.0.0",
+    "description": "ETL for AIS data from aishub.net API",
+    "main": "index.js",
+    "scripts": {
+        "lint": "eslint *.ts",
+        "build": "tsc --build",
+        "test": "exit 0"
+    },
+    "author": "Nick Ingalls <nick@ingalls.ca>",
+    "license": "ISC",
+    "devDependencies": {
+        "@types/geojson": "^7946.0.10",
+        "eslint": "^9.0.0",
+        "ts-node": "^10.9.1",
+        "typescript": "^5.0.4",
+        "typescript-eslint": "^8.0.0"
+    },
+    "dependencies": {
+        "@sinclair/typebox": "^0.34.0",
+        "@tak-ps/etl": "^9.9.0"
+    }
+}
