@@ -1,8 +1,18 @@
 # CHANGELOG
 
-## v1.0.0
+## Emoji Cheatsheet
+- :pencil2: doc updates
+- :bug: when fixing a bug
+- :rocket: when making general improvements
+- :white_check_mark: when adding tests
+- :arrow_up: when upgrading dependencies
+- :tada: when adding new features
 
-**Added**
+## Version History
+
+### v1.0.0
+
+:tada: **Added**
 - Initial implementation of AISHub ETL
 - Support for AISHub.net REST API
 - Ship type classification and CoT mapping

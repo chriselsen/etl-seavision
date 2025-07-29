@@ -1,17 +1,17 @@
 {
-    "name": "coe-aishub",
+    "name": "etl-aishub",
     "type": "module",
     "private": true,
     "version": "1.0.0",
     "description": "ETL for AIS data from aishub.net API",
     "main": "index.js",
     "scripts": {
-        "lint": "eslint *.ts",
+        "lint": "eslint task.ts",
         "build": "tsc --build",
         "test": "exit 0"
     },
-    "author": "Nick Ingalls <nick@ingalls.ca>",
-    "license": "ISC",
+    "author": "Christian Elsen <chris@elsen.nz>",
+    "license": "MIT",
     "devDependencies": {
         "@types/geojson": "^7946.0.10",
         "eslint": "^9.0.0",

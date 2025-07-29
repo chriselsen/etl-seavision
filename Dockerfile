@@ -1,8 +1,8 @@
-FROM public.ecr.aws/lambda/nodejs:20
+FROM public.ecr.aws/lambda/nodejs:22
 
-COPY package*.json ./
-RUN npm ci --omit=dev
+COPY . ${LAMBDA_TASK_ROOT}/
 
-COPY . .
+RUN npm install \
+    && npm run build
 
-CMD ["task.handler"]
+CMD ["dist/task.handler"]
