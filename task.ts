@@ -4,31 +4,75 @@ import ETL, { Event, SchemaType, handler as internal, local, InvocationType, Dat
 
 // AIS ship type to CoT type mapping
 const AIS_TYPE_TO_COT: Record<number, { type: string; icon?: string }> = {
+    // 20-29: Wing in ground (WIG)
+    20: { type: 'a-f-S-X-A' }, // Wing in ground
+    21: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat A
+    22: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat B
+    23: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat C
+    24: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat D
+    29: { type: 'a-f-S-X-A' }, // Wing in ground, No additional info
+    
+    // 30-39: Fishing and special vessels
     30: { type: 'a-f-S-X-F' }, // Fishing
     31: { type: 'a-f-S-X-M-T-O' }, // Towing
-    32: { type: 'a-f-S-X-M-T-O' }, // Towing: length exceeds 200m or breadth exceeds 25m
-    33: { type: 'a-f-S-X-F-D-R' }, // Dredging or underwater ops
+    32: { type: 'a-f-S-X-M-T-O' }, // Towing (large)
+    33: { type: 'a-f-S-X-F-D-R' }, // Dredging/underwater ops
+    34: { type: 'a-f-S-X-F-D' }, // Diving ops
     35: { type: 'a-f-S-X-M' }, // Military ops
     36: { type: 'a-n-S-X-Y' }, // Sailing
     37: { type: 'a-n-S-X-R' }, // Pleasure Craft
+    
+    // 40-49: High speed craft (HSC)
+    40: { type: 'a-f-S-X-H' }, // High speed craft
+    41: { type: 'a-f-S-X-H' }, // HSC, Hazmat A
+    42: { type: 'a-f-S-X-H' }, // HSC, Hazmat B
+    43: { type: 'a-f-S-X-H' }, // HSC, Hazmat C
+    44: { type: 'a-f-S-X-H' }, // HSC, Hazmat D
+    49: { type: 'a-f-S-X-H' }, // HSC, No additional info
+    
+    // 50-59: Special craft
+    50: { type: 'a-f-S-X-P' }, // Pilot Vessel
     51: { type: 'a-f-S-X-R' }, // Search and Rescue vessel
+    52: { type: 'a-f-S-X-M-T' }, // Tug
+    53: { type: 'a-f-S-X-M-P-T' }, // Port Tender
+    54: { type: 'a-f-S-X-F-A-P' }, // Anti-pollution equipment
     55: { type: 'a-f-S-X-L' }, // Law Enforcement
+    56: { type: 'a-f-S-X-M' }, // Spare - Local Vessel
+    57: { type: 'a-f-S-X-M' }, // Spare - Local Vessel
     58: { type: 'a-f-S-X-M-E' }, // Medical Transport
+    59: { type: 'a-f-S-X-M' }, // Noncombatant ship
+    
+    // 60-69: Passenger
     60: { type: 'a-f-S-X-M-P' }, // Passenger
-    61: { type: 'a-f-S-X-M-P' }, // Passenger, Hazardous category A
-    62: { type: 'a-f-S-X-M-P' }, // Passenger, Hazardous category B
-    63: { type: 'a-f-S-X-M-P' }, // Passenger, Hazardous category C
-    64: { type: 'a-f-S-X-M-P' }, // Passenger, Hazardous category D
+    61: { type: 'a-f-S-X-M-P' }, // Passenger, Hazmat A
+    62: { type: 'a-f-S-X-M-P' }, // Passenger, Hazmat B
+    63: { type: 'a-f-S-X-M-P' }, // Passenger, Hazmat C
+    64: { type: 'a-f-S-X-M-P' }, // Passenger, Hazmat D
+    69: { type: 'a-f-S-X-M-P' }, // Passenger, No additional info
+    
+    // 70-79: Cargo
     70: { type: 'a-f-S-X-M-C' }, // Cargo
-    71: { type: 'a-f-S-X-M-C' }, // Cargo, Hazardous category A
-    72: { type: 'a-f-S-X-M-C' }, // Cargo, Hazardous category B
-    73: { type: 'a-f-S-X-M-C' }, // Cargo, Hazardous category C
-    74: { type: 'a-f-S-X-M-C' }, // Cargo, Hazardous category D
+    71: { type: 'a-f-S-X-M-C' }, // Cargo, Hazmat A
+    72: { type: 'a-f-S-X-M-C' }, // Cargo, Hazmat B
+    73: { type: 'a-f-S-X-M-C' }, // Cargo, Hazmat C
+    74: { type: 'a-f-S-X-M-C' }, // Cargo, Hazmat D
+    79: { type: 'a-f-S-X-M-C' }, // Cargo, No additional info
+    
+    // 80-89: Tanker
     80: { type: 'a-f-S-X-M-O' }, // Tanker
-    81: { type: 'a-f-S-X-M-O' }, // Tanker, Hazardous category A
-    82: { type: 'a-f-S-X-M-O' }, // Tanker, Hazardous category B
-    83: { type: 'a-f-S-X-M-O' }, // Tanker, Hazardous category C
-    84: { type: 'a-f-S-X-M-O' } // Tanker, Hazardous category D
+    81: { type: 'a-f-S-X-M-O' }, // Tanker, Hazmat A
+    82: { type: 'a-f-S-X-M-O' }, // Tanker, Hazmat B
+    83: { type: 'a-f-S-X-M-O' }, // Tanker, Hazmat C
+    84: { type: 'a-f-S-X-M-O' }, // Tanker, Hazmat D
+    89: { type: 'a-f-S-X-M-O' }, // Tanker, No additional info
+    
+    // 90-99: Other
+    90: { type: 'a-f-S' }, // Other Type
+    91: { type: 'a-f-S' }, // Other Type, Hazmat A
+    92: { type: 'a-f-S' }, // Other Type, Hazmat B
+    93: { type: 'a-f-S' }, // Other Type, Hazmat C
+    94: { type: 'a-f-S' }, // Other Type, Hazmat D
+    99: { type: 'a-f-S' } // Other Type, No additional info
 };
 
 const Env = Type.Object({
@@ -246,31 +290,101 @@ export default class Task extends ETL {
         if (!shipType) return 'Unknown';
         
         const types: Record<number, string> = {
+            // 20-29: Wing in ground (WIG)
+            20: 'Wing in ground (WIG)',
+            21: 'Wing in ground (WIG), Hazmat A',
+            22: 'Wing in ground (WIG), Hazmat B',
+            23: 'Wing in ground (WIG), Hazmat C',
+            24: 'Wing in ground (WIG), Hazmat D',
+            25: 'Wing in ground (WIG), Reserved',
+            26: 'Wing in ground (WIG), Reserved',
+            27: 'Wing in ground (WIG), Reserved',
+            28: 'Wing in ground (WIG), Reserved',
+            29: 'Wing in ground (WIG), No additional info',
+            
+            // 30-39: Fishing
             30: 'Fishing',
             31: 'Towing',
             32: 'Towing (large)',
             33: 'Dredging/underwater ops',
+            34: 'Diving ops',
             35: 'Military ops',
             36: 'Sailing',
             37: 'Pleasure Craft',
+            38: 'Reserved',
+            39: 'Reserved',
+            
+            // 40-49: High speed craft (HSC)
+            40: 'High speed craft (HSC)',
+            41: 'High speed craft (HSC), Hazmat A',
+            42: 'High speed craft (HSC), Hazmat B',
+            43: 'High speed craft (HSC), Hazmat C',
+            44: 'High speed craft (HSC), Hazmat D',
+            45: 'High speed craft (HSC), Reserved',
+            46: 'High speed craft (HSC), Reserved',
+            47: 'High speed craft (HSC), Reserved',
+            48: 'High speed craft (HSC), Reserved',
+            49: 'High speed craft (HSC), No additional info',
+            
+            // 50-59: Special craft
+            50: 'Pilot Vessel',
             51: 'Search and Rescue vessel',
+            52: 'Tug',
+            53: 'Port Tender',
+            54: 'Anti-pollution equipment',
             55: 'Law Enforcement',
+            56: 'Spare - Local Vessel',
+            57: 'Spare - Local Vessel',
             58: 'Medical Transport',
+            59: 'Noncombatant ship according to RR Resolution No. 18',
+            
+            // 60-69: Passenger
             60: 'Passenger',
             61: 'Passenger (Hazmat A)',
             62: 'Passenger (Hazmat B)',
             63: 'Passenger (Hazmat C)',
             64: 'Passenger (Hazmat D)',
+            65: 'Passenger, Reserved',
+            66: 'Passenger, Reserved',
+            67: 'Passenger, Reserved',
+            68: 'Passenger, Reserved',
+            69: 'Passenger, No additional info',
+            
+            // 70-79: Cargo
             70: 'Cargo',
             71: 'Cargo (Hazmat A)',
             72: 'Cargo (Hazmat B)',
             73: 'Cargo (Hazmat C)',
             74: 'Cargo (Hazmat D)',
+            75: 'Cargo, Reserved',
+            76: 'Cargo, Reserved',
+            77: 'Cargo, Reserved',
+            78: 'Cargo, Reserved',
+            79: 'Cargo, No additional info',
+            
+            // 80-89: Tanker
             80: 'Tanker',
             81: 'Tanker (Hazmat A)',
             82: 'Tanker (Hazmat B)',
             83: 'Tanker (Hazmat C)',
-            84: 'Tanker (Hazmat D)'
+            84: 'Tanker (Hazmat D)',
+            85: 'Tanker, Reserved',
+            86: 'Tanker, Reserved',
+            87: 'Tanker, Reserved',
+            88: 'Tanker, Reserved',
+            89: 'Tanker, No additional info',
+            
+            // 90-99: Other
+            90: 'Other Type',
+            91: 'Other Type (Hazmat A)',
+            92: 'Other Type (Hazmat B)',
+            93: 'Other Type (Hazmat C)',
+            94: 'Other Type (Hazmat D)',
+            95: 'Other Type, Reserved',
+            96: 'Other Type, Reserved',
+            97: 'Other Type, Reserved',
+            98: 'Other Type, Reserved',
+            99: 'Other Type, No additional info'
         };
         
         return types[shipType] || `Unknown (${shipType})`;
