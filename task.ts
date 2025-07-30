@@ -5,21 +5,21 @@ import ETL, { Event, SchemaType, handler as internal, local, InvocationType, Dat
 // AIS ship type to CoT type mapping
 const AIS_TYPE_TO_COT: Record<number, { type: string; icon?: string }> = {
     // 20-29: Wing in ground (WIG)
-    20: { type: 'a-f-S-X-A' }, // Wing in ground
-    21: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat A
-    22: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat B
-    23: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat C
-    24: { type: 'a-f-S-X-A' }, // Wing in ground, Hazmat D
-    29: { type: 'a-f-S-X-A' }, // Wing in ground, No additional info
+    20: { type: 'a-f-S-X' }, // Wing in ground
+    21: { type: 'a-f-S-X' }, // Wing in ground, Hazmat A
+    22: { type: 'a-f-S-X' }, // Wing in ground, Hazmat B
+    23: { type: 'a-f-S-X' }, // Wing in ground, Hazmat C
+    24: { type: 'a-f-S-X' }, // Wing in ground, Hazmat D
+    29: { type: 'a-f-S-X' }, // Wing in ground, No additional info
     
     // 30-39: Fishing and special vessels
     30: { type: 'a-f-S-X-F' }, // Fishing
     31: { type: 'a-f-S-X-M-T-O' }, // Towing
     32: { type: 'a-f-S-X-M-T-O' }, // Towing (large)
     33: { type: 'a-f-S-X-F-D-R' }, // Dredging/underwater ops
-    34: { type: 'a-f-S-X-F-D' }, // Diving ops
-    35: { type: 'a-f-S-X-M' }, // Military ops
-    36: { type: 'a-n-S-X-Y' }, // Sailing
+    34: { type: 'a-f-U-N-D' }, // Diving ops
+    35: { type: 'a-f-S' }, // Military ops
+    36: { type: 'a-n-S-X-R' }, // Sailing
     37: { type: 'a-n-S-X-R' }, // Pleasure Craft
     
     // 40-49: High speed craft (HSC)
@@ -31,15 +31,15 @@ const AIS_TYPE_TO_COT: Record<number, { type: string; icon?: string }> = {
     49: { type: 'a-f-S-X-H' }, // HSC, No additional info
     
     // 50-59: Special craft
-    50: { type: 'a-f-S-X-P' }, // Pilot Vessel
-    51: { type: 'a-f-S-X-R' }, // Search and Rescue vessel
-    52: { type: 'a-f-S-X-M-T' }, // Tug
-    53: { type: 'a-f-S-X-M-P-T' }, // Port Tender
-    54: { type: 'a-f-S-X-F-A-P' }, // Anti-pollution equipment
+    50: { type: 'a-f-S-N-S' }, // Pilot Vessel
+    51: { type: 'a-f-S-N-N-R' }, // Search and Rescue vessel
+    52: { type: 'a-f-S-X-M-T-U' }, // Tug
+    53: { type: 'a-f-S-X' }, // Port Tender
+    54: { type: 'a-f-S-X' }, // Anti-pollution equipment
     55: { type: 'a-f-S-X-L' }, // Law Enforcement
     56: { type: 'a-f-S-X-M' }, // Spare - Local Vessel
     57: { type: 'a-f-S-X-M' }, // Spare - Local Vessel
-    58: { type: 'a-f-S-X-M-E' }, // Medical Transport
+    58: { type: 'a-f-S-N-M' }, // Medical Transport
     59: { type: 'a-f-S-X-M' }, // Noncombatant ship
     
     // 60-69: Passenger
@@ -67,12 +67,12 @@ const AIS_TYPE_TO_COT: Record<number, { type: string; icon?: string }> = {
     89: { type: 'a-f-S-X-M-O' }, // Tanker, No additional info
     
     // 90-99: Other
-    90: { type: 'a-f-S' }, // Other Type
-    91: { type: 'a-f-S' }, // Other Type, Hazmat A
-    92: { type: 'a-f-S' }, // Other Type, Hazmat B
-    93: { type: 'a-f-S' }, // Other Type, Hazmat C
-    94: { type: 'a-f-S' }, // Other Type, Hazmat D
-    99: { type: 'a-f-S' } // Other Type, No additional info
+    90: { type: 'a-f-S-X' }, // Other Type
+    91: { type: 'a-f-S-X' }, // Other Type, Hazmat A
+    92: { type: 'a-f-S-X' }, // Other Type, Hazmat B
+    93: { type: 'a-f-S-X' }, // Other Type, Hazmat C
+    94: { type: 'a-f-S-X' }, // Other Type, Hazmat D
+    99: { type: 'a-f-S-X' } // Other Type, No additional info
 };
 
 const Env = Type.Object({
@@ -199,7 +199,7 @@ export default class Task extends ETL {
         // 80-89: Tankers
         if (shipType >= 80 && shipType <= 89) return { type: `a-${affiliation}-S-X-M-O` };
         
-        return { type: `a-${affiliation}-S` };
+        return { type: `a-${affiliation}-S-X` };
     }
 
     private getNavigationalStatusText(status?: number): string {
