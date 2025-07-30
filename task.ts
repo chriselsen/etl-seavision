@@ -177,7 +177,7 @@ export default class Task extends ETL {
             }
         }
         
-        if (!shipType) return { type: `a-${affiliation}-S` };
+        if (!shipType) return { type: `a-${affiliation}-S-X` };
         
         const mapping = AIS_TYPE_TO_COT[shipType];
         if (mapping) {
