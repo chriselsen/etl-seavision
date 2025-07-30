@@ -177,7 +177,7 @@ export default class Task extends ETL {
             }
         }
         
-        if (!shipType) return { type: `a-${affiliation}-S` };
+        if (!shipType) return { type: `a-${affiliation}-S-X` };
         
         const mapping = AIS_TYPE_TO_COT[shipType];
         if (mapping) {
@@ -199,7 +199,7 @@ export default class Task extends ETL {
         // 80-89: Tankers
         if (shipType >= 80 && shipType <= 89) return { type: `a-${affiliation}-S-X-M-O` };
         
-        return { type: `a-${affiliation}-S` };
+        return { type: `a-${affiliation}-S-X` };
     }
 
     private getNavigationalStatusText(status?: number): string {
