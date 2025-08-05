@@ -100,18 +100,7 @@ const Env = Type.Object({
         description: 'Vessel-specific CoT type and icon overrides by MMSI',
         default: []
     }),
-    'VESSEL_PHOTO_ENABLED': Type.Boolean({
-        description: 'Enable vessel photo links',
-        default: false
-    }),
-    'VESSEL_PHOTO_API': Type.String({
-        description: 'Vessel photo API endpoint URL',
-        default: 'https://utils.test.tak.nz/ais-proxy/ship-photo'
-    }),
-    'VESSEL_PHOTO_TIMEOUT': Type.Number({
-        description: 'Vessel photo API timeout in milliseconds',
-        default: 2000
-    }),
+
     'DEBUG': Type.Boolean({
         description: 'Enable debug logging',
         default: false
@@ -229,57 +218,7 @@ export default class Task extends ETL {
         return { type: `a-${affiliation}-S-X` };
     }
 
-    private createPhotoCheckUrl(mmsi: number, photoApiUrl: string, apiKey: string): string {
-        const url = new URL(`${photoApiUrl}/${mmsi}/exists`);
-        url.searchParams.append('username', apiKey);
-        return url.toString();
-    }
 
-    private async fetchWithTimeout(url: string, timeoutMs: number): Promise<any> {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), timeoutMs);
-        
-        try {
-            const res = await fetch(url, { signal: controller.signal });
-            clearTimeout(timeout);
-            return res;
-        } catch {
-            clearTimeout(timeout);
-            return null;
-        }
-    }
-
-    private async processVesselPhotos(features: any[], vessels: Static<typeof AISHubVessel>[], env: Static<typeof Env>): Promise<void> {
-        const photoChecks = features.map(async (feature, i) => {
-            const vessel = vessels[i];
-            const hasPhoto = await this.hasRealPhoto(vessel.MMSI, env.VESSEL_PHOTO_API, env.API_KEY, env.VESSEL_PHOTO_TIMEOUT);
-            
-            if (hasPhoto) {
-                feature.properties.links = [{
-                    uid: `AIS.${vessel.MMSI}`,
-                    relation: 'r-u',
-                    mime: 'text/html',
-                    url: `${env.VESSEL_PHOTO_API}/${vessel.MMSI}?username=${env.API_KEY}`,
-                    remarks: 'Vesselfinder Picture'
-                }];
-            }
-        });
-        
-        await Promise.all(photoChecks);
-    }
-
-    private async hasRealPhoto(mmsi: number, photoApiUrl: string, apiKey: string, timeoutMs: number): Promise<boolean> {
-        try {
-            const url = this.createPhotoCheckUrl(mmsi, photoApiUrl, apiKey);
-            const res = await this.fetchWithTimeout(url, timeoutMs);
-            
-            if (!res?.ok) return false;
-            const data = await res.json() as { exists: boolean; hasRealPhoto: boolean };
-            return data.hasRealPhoto === true;
-        } catch {
-            return false;
-        }
-    }
 
     private getNavigationalStatusText(status?: number): string {
         const statuses: Record<number, string> = {
@@ -541,7 +480,7 @@ export default class Task extends ETL {
                     vessel.SOG !== undefined ? `Speed: ${vessel.SOG} knots` : null,
                     vessel.COG !== undefined ? `Course: ${vessel.COG}°` : null,
                     vessel.HEADING !== undefined ? `Heading: ${vessel.HEADING}°` : null,
-                    vessel.DRAUGHT !== undefined ? `Draught: ${vessel.DRAUGHT}m` : null,
+                    vessel.DRAUGHT !== undefined && vessel.DRAUGHT !== null ? `Draught: ${vessel.DRAUGHT}m` : null,
                     vessel.ETA ? `ETA: ${vessel.ETA}` : null,
                     customComments ? `Comments: ${customComments}` : null
                 ].filter(Boolean).join('\n');
@@ -572,10 +511,7 @@ export default class Task extends ETL {
                 features.push(feature);
             }
 
-            // Check for vessel photos if enabled
-            if (env.VESSEL_PHOTO_ENABLED) {
-                await this.processVesselPhotos(features, body.VESSELS!, env);
-            }
+
 
             const fc: Static<typeof InputFeatureCollection> = {
                 type: 'FeatureCollection',
