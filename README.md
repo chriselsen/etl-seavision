@@ -26,6 +26,8 @@ This ETL connects to the AISHub REST API to receive vessel position and static d
 | `API_KEY` | AISHub API key from aishub.net | Required |
 | `BOUNDING_BOX` | Bounding box as minLat,maxLat,minLon,maxLon | `-48.0,-34.0,166.0,179.0` (NZ waters) |
 | `API_URL` | Custom API URL (default: AISHub) | `http://data.aishub.net/ws.php` |
+| `VESSEL_PHOTO_ENABLED` | Enable vessel photo links | `false` |
+| `VESSEL_PHOTO_API` | Vessel photo API endpoint URL | `https://utils.test.tak.nz/ais-proxy/ship-photo` |
 | `DEBUG` | Enable debug logging | `false` |
 
 ## AIS Ship Type Mapping

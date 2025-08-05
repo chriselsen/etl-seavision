@@ -100,6 +100,18 @@ const Env = Type.Object({
         description: 'Vessel-specific CoT type and icon overrides by MMSI',
         default: []
     }),
+    'VESSEL_PHOTO_ENABLED': Type.Boolean({
+        description: 'Enable vessel photo links',
+        default: false
+    }),
+    'VESSEL_PHOTO_API': Type.String({
+        description: 'Vessel photo API endpoint URL',
+        default: 'https://utils.test.tak.nz/ais-proxy/ship-photo'
+    }),
+    'VESSEL_PHOTO_TIMEOUT': Type.Number({
+        description: 'Vessel photo API timeout in milliseconds',
+        default: 2000
+    }),
     'DEBUG': Type.Boolean({
         description: 'Enable debug logging',
         default: false
@@ -133,6 +145,13 @@ export default class Task extends ETL {
     static flow = [DataFlowType.Incoming];
     static invocation = [InvocationType.Schedule];
 
+    private static readonly MILITARY_SHIP_TYPES = {
+        MILITARY_OPS: 35,
+        SEARCH_AND_RESCUE: 51,
+        LAW_ENFORCEMENT: 55,
+        MEDICAL_TRANSPORT: 58
+    } as const;
+
     async schema(
         type: SchemaType = SchemaType.Input,
         flow: DataFlowType = DataFlowType.Incoming
@@ -149,9 +168,18 @@ export default class Task extends ETL {
     }
 
     private getCoTTypeAndIcon(shipType?: number, mmsi?: number, overrides?: any[], homeFlag?: string): { type: string; icon?: string } {
+        // Validate and sanitize MMSI input (0 is valid for coast stations)
+        if (mmsi === undefined || typeof mmsi !== 'number' || mmsi < 0 || mmsi > 999999999) {
+            return this.getDefaultCoTType(shipType, mmsi, homeFlag);
+        }
+        
         // Check for MMSI-specific override first
-        if (mmsi && overrides) {
-            const override = overrides.find(o => o.MMSI === mmsi);
+        if (overrides && Array.isArray(overrides)) {
+            const override = overrides.find(o => 
+                o && typeof o === 'object' && 
+                typeof o.MMSI === 'number' && 
+                o.MMSI === mmsi
+            );
             if (override) {
                 return {
                     type: override.type || this.getDefaultCoTType(shipType, mmsi, homeFlag),
@@ -163,19 +191,18 @@ export default class Task extends ETL {
         return this.getDefaultCoTType(shipType, mmsi, homeFlag);
     }
     
+    private determineAffiliation(shipType?: number, mmsi?: number, homeFlag?: string): string {
+        if (!mmsi || !homeFlag) return 'n';
+        
+        const vesselMID = Math.floor(mmsi / 1000000).toString();
+        if (vesselMID === homeFlag) return 'f';
+        
+        const militaryTypes = Object.values(Task.MILITARY_SHIP_TYPES) as number[];
+        return shipType && militaryTypes.includes(shipType) ? 'u' : 'n';
+    }
+
     private getDefaultCoTType(shipType?: number, mmsi?: number, homeFlag?: string): { type: string; icon?: string } {
-        // Determine affiliation based on flag and vessel type
-        let affiliation = 'n'; // Default to neutral
-        if (mmsi && homeFlag) {
-            const vesselMID = Math.floor(mmsi / 1000000).toString();
-            if (vesselMID === homeFlag) {
-                affiliation = 'f'; // Friendly if home flag
-            } else {
-                // Foreign vessel - check if military
-                const isMilitary = shipType === 35 || shipType === 51 || shipType === 55 || shipType === 58;
-                affiliation = isMilitary ? 'u' : 'n'; // Unknown if foreign military, neutral if foreign civilian
-            }
-        }
+        const affiliation = this.determineAffiliation(shipType, mmsi, homeFlag);
         
         if (!shipType) return { type: `a-${affiliation}-S-X` };
         
@@ -200,6 +227,58 @@ export default class Task extends ETL {
         if (shipType >= 80 && shipType <= 89) return { type: `a-${affiliation}-S-X-M-O` };
         
         return { type: `a-${affiliation}-S-X` };
+    }
+
+    private createPhotoCheckUrl(mmsi: number, photoApiUrl: string, apiKey: string): string {
+        const url = new URL(`${photoApiUrl}/${mmsi}/exists`);
+        url.searchParams.append('username', apiKey);
+        return url.toString();
+    }
+
+    private async fetchWithTimeout(url: string, timeoutMs: number): Promise<any> {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        
+        try {
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeout);
+            return res;
+        } catch {
+            clearTimeout(timeout);
+            return null;
+        }
+    }
+
+    private async processVesselPhotos(features: any[], vessels: Static<typeof AISHubVessel>[], env: Static<typeof Env>): Promise<void> {
+        const photoChecks = features.map(async (feature, i) => {
+            const vessel = vessels[i];
+            const hasPhoto = await this.hasRealPhoto(vessel.MMSI, env.VESSEL_PHOTO_API, env.API_KEY, env.VESSEL_PHOTO_TIMEOUT);
+            
+            if (hasPhoto) {
+                feature.properties.links = [{
+                    uid: `AIS.${vessel.MMSI}`,
+                    relation: 'r-u',
+                    mime: 'text/html',
+                    url: `${env.VESSEL_PHOTO_API}/${vessel.MMSI}?username=${env.API_KEY}`,
+                    remarks: 'Vesselfinder Picture'
+                }];
+            }
+        });
+        
+        await Promise.all(photoChecks);
+    }
+
+    private async hasRealPhoto(mmsi: number, photoApiUrl: string, apiKey: string, timeoutMs: number): Promise<boolean> {
+        try {
+            const url = this.createPhotoCheckUrl(mmsi, photoApiUrl, apiKey);
+            const res = await this.fetchWithTimeout(url, timeoutMs);
+            
+            if (!res?.ok) return false;
+            const data = await res.json() as { exists: boolean; hasRealPhoto: boolean };
+            return data.hasRealPhoto === true;
+        } catch {
+            return false;
+        }
     }
 
     private getNavigationalStatusText(status?: number): string {
@@ -394,7 +473,13 @@ export default class Task extends ETL {
         const env = await this.env(Env);
         
         try {
-            const [minLat, maxLat, minLon, maxLon] = env.BOUNDING_BOX.split(',').map(Number);
+            const coords = env.BOUNDING_BOX.split(',').map(Number);
+            if (coords.length !== 4 || coords.some(isNaN) || 
+                coords[0] < -90 || coords[0] > 90 || coords[1] < -90 || coords[1] > 90 ||
+                coords[2] < -180 || coords[2] > 180 || coords[3] < -180 || coords[3] > 180) {
+                throw new Error('Invalid BOUNDING_BOX format or values');
+            }
+            const [minLat, maxLat, minLon, maxLon] = coords;
             
             const url = new URL(env.API_URL);
             url.searchParams.append('username', env.API_KEY);
@@ -407,7 +492,8 @@ export default class Task extends ETL {
             url.searchParams.append('lonmax', maxLon.toString());
 
             if (env.DEBUG) {
-                console.log(`Fetching AIS data from: ${url.toString()}`);
+                const sanitizedUrl = url.toString().replace(/[\r\n\t\x00-\x1f\x7f-\x9f]/g, ' ').substring(0, 200);
+                console.log(`Fetching AIS data from: ${sanitizedUrl}`);
             }
 
             const res = await fetch(url.toString());
@@ -419,7 +505,8 @@ export default class Task extends ETL {
             const body = await res.json() as { ERROR?: boolean; VESSELS?: Static<typeof AISHubVessel>[] };
             
             if (body.ERROR) {
-                throw new Error('AISHub API returned an error');
+                const errorMsg = typeof body.ERROR === 'string' ? body.ERROR : 'AISHub API returned an error';
+                throw new Error(`AISHub API error: ${errorMsg}`);
             }
 
             if (!body.VESSELS || !Array.isArray(body.VESSELS)) {
@@ -485,6 +572,11 @@ export default class Task extends ETL {
                 features.push(feature);
             }
 
+            // Check for vessel photos if enabled
+            if (env.VESSEL_PHOTO_ENABLED) {
+                await this.processVesselPhotos(features, body.VESSELS!, env);
+            }
+
             const fc: Static<typeof InputFeatureCollection> = {
                 type: 'FeatureCollection',
                 features
@@ -494,7 +586,16 @@ export default class Task extends ETL {
             await this.submit(fc);
             
         } catch (error) {
-            console.error(`AISHub ETL error: ${error instanceof Error ? error.message : String(error)}`);
+            if (error instanceof TypeError) {
+                console.error('AISHub ETL network error: Failed to connect to API');
+            } else if (error instanceof SyntaxError) {
+                console.error('AISHub ETL parsing error: Invalid JSON response');
+            } else {
+                const sanitizedMessage = error instanceof Error ? 
+                    error.message.replace(/[\r\n\t\x00-\x1f\x7f-\x9f]/g, ' ').substring(0, 200) : 
+                    'Unknown error';
+                console.error(`AISHub ETL error: ${sanitizedMessage}`);
+            }
             await this.submit({
                 type: 'FeatureCollection',
                 features: []
@@ -508,3 +609,4 @@ await local(new Task(), import.meta.url);
 export async function handler(event: Event = {}) {
     return await internal(new Task(), event);
 }
+
