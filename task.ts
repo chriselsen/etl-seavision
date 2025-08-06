@@ -462,6 +462,10 @@ export default class Task extends ETL {
             const features: Static<typeof InputFeatureCollection>['features'] = [];
             
             for (const vessel of body.VESSELS) {
+                if (env.DEBUG && vessel.MMSI === 352001543) {
+                    console.log(`Debug vessel 352001543:`, JSON.stringify(vessel, null, 2));
+                }
+                
                 const { type, icon } = this.getCoTTypeAndIcon(vessel.TYPE, vessel.MMSI, env.VESSEL_OVERRIDES, env.HOME_FLAG);
                 
                 // Check for custom comments from overrides
@@ -471,9 +475,9 @@ export default class Task extends ETL {
                 const remarks = [
                     `MMSI: ${vessel.MMSI}`,
                     `Flag: ${this.getCountryFromMMSI(vessel.MMSI)}`,
-                    vessel.NAME ? `Name: ${vessel.NAME}` : null,
-                    vessel.CALLSIGN ? `Call Sign: ${vessel.CALLSIGN}` : null,
-                    vessel.TYPE ? `Ship Type: ${vessel.TYPE} (${this.getShipTypeDescription(vessel.TYPE)})` : null,
+                    vessel.NAME && vessel.NAME.trim() ? `Name: ${vessel.NAME}` : null,
+                    vessel.CALLSIGN && vessel.CALLSIGN.trim() ? `Call Sign: ${vessel.CALLSIGN}` : null,
+                    vessel.TYPE !== undefined && vessel.TYPE !== null ? `Ship Type: ${vessel.TYPE} (${this.getShipTypeDescription(vessel.TYPE)})` : null,
                     vessel.IMO ? `IMO: ${vessel.IMO}` : null,
                     vessel.DEST ? `Destination: ${vessel.DEST}` : null,
                     vessel.NAVSTAT !== undefined ? `Status: ${this.getNavigationalStatusText(vessel.NAVSTAT)}` : null,
@@ -490,7 +494,7 @@ export default class Task extends ETL {
                     type: 'Feature',
                     properties: {
                         type,
-                        callsign: vessel.NAME || `MMSI-${vessel.MMSI}`,
+                        callsign: (vessel.NAME && vessel.NAME.trim()) || `MMSI-${vessel.MMSI}`,
                         time: new Date(vessel.TIME).toISOString(),
                         start: new Date(vessel.TIME).toISOString(),
                         course: vessel.COG || 0,
