@@ -7,6 +7,10 @@
 
 [AIShub.net](https://www.aishub.net/api)
 
+## Example Data
+
+![AISHub Vessel locations](docs/etl-aishub.png)
+
 ## Overview
 
 This ETL connects to the AISHub REST API to receive vessel position and static data, then transforms it into CoT format with appropriate vessel types and icons based on AIS ship type classifications.
@@ -16,8 +20,8 @@ This ETL connects to the AISHub REST API to receive vessel position and static d
 - Real-time AIS data via REST API
 - Ship type classification and CoT type mapping
 - Configurable bounding box filtering
-
 - Comprehensive vessel information in remarks
+- Vessel-specific overrides by MMSI
 
 ## Configuration
 
@@ -26,21 +30,17 @@ This ETL connects to the AISHub REST API to receive vessel position and static d
 | `API_KEY` | AISHub API key from aishub.net | Required |
 | `BOUNDING_BOX` | Bounding box as minLat,maxLat,minLon,maxLon | `-48.0,-34.0,166.0,179.0` (NZ waters) |
 | `API_URL` | Custom API URL (default: AISHub) | `http://data.aishub.net/ws.php` |
-| `VESSEL_PHOTO_ENABLED` | Enable vessel photo links | `false` |
-| `VESSEL_PHOTO_API` | Vessel photo API endpoint URL | `https://utils.test.tak.nz/ais-proxy/ship-photo` |
+| `HOME_FLAG` | Home flag MID code for affiliation determination | `512` (New Zealand) |
+| `VESSEL_OVERRIDES` | Vessel-specific CoT type and icon overrides by MMSI | `[]` |
 | `DEBUG` | Enable debug logging | `false` |
 
 ## AIS Ship Type Mapping
 
-The ETL maps AIS ship types to appropriate CoT types:
+The ETL maps AIS ship types to appropriate CoT types with dynamic affiliation determination:
 
-- **30-39**: Fishing vessels → `a-n-S-F`
-- **40-49**: High speed craft → `a-n-S-H`
-- **50-59**: Special craft/SAR → `a-f-S-R`
-- **60-69**: Passenger vessels → `a-n-S-P`
-- **70-79**: Cargo ships → `a-n-S-C`
-- **80-89**: Tankers → `a-n-S-T`
-- **Others**: Generic surface contact → `a-n-S`
+- **Affiliation**: Determined by vessel flag (home/foreign) and military classification
+- **Ship Types**: Comprehensive mapping for all AIS vessel types (20-99)
+- **Fallback**: Unknown types default to generic surface contact
 
 ## Deployment
 
