@@ -13,9 +13,10 @@
 ### v1.0.0
 
 :tada: **Added**
-- Initial implementation of AISHub ETL
-- Support for AISHub.net REST API
+- Initial implementation of SeaVision ETL
+- Support for SeaVision REST API
 - Ship type classification and CoT mapping
-- Configurable bounding box filtering
-- Speed filtering capabilities
-- Comprehensive vessel information display
+- Multiple location query support
+- Vessel-specific overrides by MMSI
+- Age-based data filtering
+- Per-location API key configuration

@@ -1,9 +1,9 @@
 {
-    "name": "etl-aishub",
+    "name": "etl-seavision",
     "type": "module",
     "private": true,
     "version": "1.0.0",
-    "description": "ETL for AIS data from aishub.net API",
+    "description": "ETL for AIS data from SeaVision API",
     "main": "index.js",
     "scripts": {
         "lint": "eslint task.ts",

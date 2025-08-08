@@ -1,38 +1,61 @@
-# ETL-AISHUB
+# ETL-SEAVISION
 
-<p align='center'>Automatic Identification System (AIS) vessel data</p>
+<p align='center'>Automatic Identification System (AIS) vessel data via SeaVision API</p>
 
 
 ## Data Source
 
-[AIShub.net](https://www.aishub.net/api)
-
-## Example Data
-
-![AISHub Vessel locations](docs/etl-aishub.png)
+[SeaVision API](https://api.seavision.volpe.dot.gov/v1/#/vessels/get_vessels)
 
 ## Overview
 
-This ETL connects to the AISHub REST API to receive vessel position and static data, then transforms it into CoT format with appropriate vessel types and icons based on AIS ship type classifications.
+This ETL connects to the SeaVision REST API to receive vessel position and static data, then transforms it into CoT format with appropriate vessel types and icons based on AIS ship type classifications. SeaVision requires specifying latitude/longitude locations with radius in statute miles, and this ETL supports querying multiple locations in a single run.
 
 ## Features
 
 - Real-time AIS data via REST API
 - Ship type classification and CoT type mapping
-- Configurable bounding box filtering
+- Multiple location query support with individual API keys
+- Age-based data filtering
 - Comprehensive vessel information in remarks
 - Vessel-specific overrides by MMSI
+- Flag-based affiliation determination
 
 ## Configuration
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `API_KEY` | AISHub API key from aishub.net | Required |
-| `BOUNDING_BOX` | Bounding box as minLat,maxLat,minLon,maxLon | `-48.0,-34.0,166.0,179.0` (NZ waters) |
-| `API_URL` | Custom API URL (default: AISHub) | `http://data.aishub.net/ws.php` |
-| `HOME_FLAG` | Home flag MID code for affiliation determination | `512` (New Zealand) |
+| `API_KEY` | SeaVision API key (x-api-key header) | Required |
+| `LOCATIONS` | Array of location/radius/apiKey objects to query | `[{ latitude: 37.7749, longitude: -122.4194, radius: 100 }]` |
+| `MAX_AGE_HOURS` | Maximum age of vessel data in hours | `1` |
+| `API_URL` | SeaVision API URL | `https://api.seavision.volpe.dot.gov/v1/vessels` |
+| `HOME_FLAG` | Home flag MID codes for affiliation determination | `303,338,366,367,368,369` (United States) |
 | `VESSEL_OVERRIDES` | Vessel-specific CoT type and icon overrides by MMSI | `[]` |
 | `DEBUG` | Enable debug logging | `false` |
+
+### Location Configuration
+
+The `LOCATIONS` parameter accepts an array of objects with the following structure:
+```json
+[
+  {
+    "latitude": -36.0,
+    "longitude": 174.0,
+    "radius": 50,
+    "apiKey": "optional-location-specific-api-key"
+  },
+  {
+    "latitude": -41.0,
+    "longitude": 175.0,
+    "radius": 30
+  }
+]
+```
+
+- `latitude`: Latitude of search center (decimal degrees)
+- `longitude`: Longitude of search center (decimal degrees)  
+- `radius`: Search radius in statute miles (1-100)
+- `apiKey`: Optional location-specific API key (falls back to global API_KEY)
 
 ## AIS Ship Type Mapping
 
@@ -83,6 +106,22 @@ As an example:
 ../CloudTAK/scripts/etl/deploy-etl.sh Demo v1.0.0 --profile tak-nz-demo
 ```
 
+## SeaVision API
+
+The SeaVision API provides AIS vessel data and requires:
+- API key authentication (x-api-key header)
+- Latitude/longitude coordinates for search center
+- Radius in statute miles for search area (1-100 miles)
+
+The ETL automatically handles:
+- Multiple location queries in a single run
+- Per-location API key support for rate limiting
+- Duplicate vessel removal (by MMSI)
+- Age-based data filtering
+- Data transformation to CoT format
+- Vessel type classification and mapping
+- Flag-based affiliation determination
+
 ### CloudTAK Configuration
 
 When registering this ETL as a task in CloudTAK:
@@ -107,7 +146,11 @@ When the ETL is deployed the `ETL_API` and `ETL_LAYER` variables will be provide
 ```json
 {
     "ETL_API": "http://localhost:5001",
-    "ETL_LAYER": "19"
+    "ETL_LAYER": "19",
+    "API_KEY": "your-seavision-api-key",
+    "LOCATIONS": "[{\"latitude\": -36.0, \"longitude\": 174.0, \"radius\": 50}]",
+    "MAX_AGE_HOURS": "1",
+    "HOME_FLAG": "303,338,366,367,368,369"
 }
 ```
 
