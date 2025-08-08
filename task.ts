@@ -2,7 +2,11 @@ import { Static, Type, TSchema } from '@sinclair/typebox';
 import { fetch } from '@tak-ps/etl';
 import ETL, { Event, SchemaType, handler as internal, local, InvocationType, DataFlowType } from '@tak-ps/etl';
 
-// AIS ship type to CoT type mapping
+/**
+ * AIS ship type to CoT type mapping
+ * Maps AIS vessel types (20-99) to appropriate Cursor-on-Target types
+ * Affiliation (a-f-/a-n-/a-u-) will be dynamically replaced based on vessel flag
+ */
 const AIS_TYPE_TO_COT: Record<number, { type: string; icon?: string }> = {
     // 20-29: Wing in ground (WIG)
     20: { type: 'a-f-S-X' }, // Wing in ground
@@ -75,6 +79,10 @@ const AIS_TYPE_TO_COT: Record<number, { type: string; icon?: string }> = {
     99: { type: 'a-f-S-X' } // Other Type, No additional info
 };
 
+/**
+ * Environment configuration schema
+ * Defines all configurable parameters for the SeaVision ETL
+ */
 const Env = Type.Object({
     'API_KEY': Type.String({
         description: 'SeaVision API key (x-api-key header)'
@@ -83,12 +91,12 @@ const Env = Type.Object({
         latitude: Type.Number({ description: 'Latitude of search center' }),
         longitude: Type.Number({ description: 'Longitude of search center' }),
         radius: Type.Number({ description: 'Search radius in statute miles (1-100)', minimum: 1, maximum: 100 }),
-        apiKey: Type.String({ description: 'SeaVision API key for this location' })
+        apiKey: Type.Optional(Type.String({ description: 'SeaVision API key for this location' }))
     }), {
         description: 'Array of location/radius/API key combinations to query',
-        default: [{ latitude: 37.7749, longitude: -122.4194, radius: 100, apiKey: '' }]
+        default: [{ latitude: 37.7749, longitude: -122.4194, radius: 100 }]
     }),
-    'MAX_AGE': Type.Number({
+    'MAX_AGE_HOURS': Type.Number({
         description: 'Maximum age of vessel data in hours',
         default: 1,
         minimum: 1
@@ -97,12 +105,33 @@ const Env = Type.Object({
         description: 'SeaVision API URL',
         default: 'https://api.seavision.volpe.dot.gov/v1/vessels'
     }),
-    'HOME_FLAGS': Type.Array(Type.String(), {
-        description: 'Home flag MID codes for affiliation determination',
-        default: ['303', '338', '366', '367', '368', '369']
+    'HOME_FLAGS': Type.String({
+        description: 'Home flag MID codes for affiliation determination (comma-separated)',
+        default: '303,338,366,367,368,369'
+    }),
+    'MAX_LOCATION_RUNTIME': Type.Number({
+        description: 'Maximum total runtime for all location API calls in seconds',
+        default: 60,
+        minimum: 10
     }),
     'VESSEL_FILTERING': Type.Optional(Type.Boolean({
         description: 'Only show vessels from the VESSEL_OVERRIDES list. Useful for filtering out large amounts of vessels in an area.',
+        default: false
+    })),
+    'SHOW_MILITARY': Type.Optional(Type.Boolean({
+        description: 'Show Military ops vessels (type 35) when VESSEL_FILTERING is enabled',
+        default: false
+    })),
+    'SHOW_SEARCH_RESCUE': Type.Optional(Type.Boolean({
+        description: 'Show Search and Rescue vessels (type 51) when VESSEL_FILTERING is enabled',
+        default: false
+    })),
+    'SHOW_LAW_ENFORCEMENT': Type.Optional(Type.Boolean({
+        description: 'Show Law Enforcement vessels (type 55) when VESSEL_FILTERING is enabled',
+        default: false
+    })),
+    'SHOW_MEDICAL': Type.Optional(Type.Boolean({
+        description: 'Show Medical Transport vessels (type 58) when VESSEL_FILTERING is enabled',
         default: false
     })),
     'VESSEL_USE_OVERRIDES': Type.Optional(Type.Boolean({
@@ -124,6 +153,10 @@ const Env = Type.Object({
     })
 });
 
+/**
+ * SeaVision API vessel data structure
+ * Defines the expected format of vessel data from the SeaVision API
+ */
 const SeaVisionVessel = Type.Object({
     mmsi: Type.Number(),
     imoNumber: Type.Optional(Type.Number()),
@@ -142,17 +175,30 @@ const SeaVisionVessel = Type.Object({
     beam: Type.Optional(Type.Number())
 });
 
+/**
+ * SeaVision ETL Task
+ * Fetches vessel data from SeaVision API and transforms it to CoT format
+ */
 export default class Task extends ETL {
     static name = 'etl-seavision';
     static flow = [DataFlowType.Incoming];
     static invocation = [InvocationType.Schedule];
 
+    /** AIS ship types considered military for affiliation determination */
     private static readonly MILITARY_SHIP_TYPES = [35, 51, 55, 58] as const;
 
+    /**
+     * Get flag country from MMSI Maritime Identification Digits (MID)
+     * @param mmsi - Maritime Mobile Service Identity number
+     * @returns Country name or 'Unknown'
+     */
     private getFlagCountry(mmsi?: number): string {
         if (!mmsi || typeof mmsi !== 'number') return 'Unknown';
         
+        // Extract MID (first 3 digits) from MMSI
         const mid = Math.floor(mmsi / 1000000);
+        
+        // MID to country mapping based on ITU standards
         const midMap: Record<number, string> = {
             201: 'Albania', 202: 'Andorra', 203: 'Austria', 204: 'Azores', 205: 'Belgium',
             206: 'Belarus', 207: 'Bulgaria', 208: 'Vatican', 209: 'Cyprus', 210: 'Cyprus',
@@ -236,7 +282,16 @@ export default class Task extends ETL {
         return Type.Object({});
     }
 
-    private getCoTTypeAndIcon(shipType?: number, mmsi?: number, overrides?: any[], homeFlags?: string[], useOverrides?: boolean): { type: string; icon?: string } {
+    /**
+     * Get CoT type and icon for a vessel, applying overrides if configured
+     * @param shipType - AIS ship type number
+     * @param mmsi - Maritime Mobile Service Identity
+     * @param overrides - Array of vessel-specific overrides
+     * @param homeFlags - Comma-separated home flag MID codes
+     * @param useOverrides - Whether to apply vessel overrides
+     * @returns CoT type and optional icon
+     */
+    private getCoTTypeAndIcon(shipType?: number, mmsi?: number, overrides?: any[], homeFlags?: string, useOverrides?: boolean): { type: string; icon?: string } {
         // Validate and sanitize MMSI input (0 is valid for coast stations)
         if (mmsi === undefined || typeof mmsi !== 'number' || mmsi < 0 || mmsi > 999999999) {
             return this.getDefaultCoTType(shipType, undefined, homeFlags);
@@ -270,27 +325,39 @@ export default class Task extends ETL {
         return this.getDefaultCoTType(shipType, mmsi, homeFlags);
     }
     
-    private determineAffiliation(shipType?: number, mmsi?: number, homeFlags?: string[]): string {
+    /**
+     * Determine vessel affiliation based on flag and military status
+     * @param shipType - AIS ship type number
+     * @param mmsi - Maritime Mobile Service Identity
+     * @param homeFlags - Comma-separated home flag MID codes
+     * @returns Affiliation code: 'f' (friendly), 'u' (unknown), 'n' (neutral)
+     */
+    private determineAffiliation(shipType?: number, mmsi?: number, homeFlags?: string): string {
         if (!mmsi || !homeFlags) return 'n';
         
+        // Extract MID and check against home flags
         const vesselMID = Math.floor(mmsi / 1000000).toString();
-        const isHomeFlagged = homeFlags.includes(vesselMID);
+        const homeFlagsArray = homeFlags.split(',').map(f => f.trim());
+        const isHomeFlagged = homeFlagsArray.includes(vesselMID);
         const isMilitary = shipType && (Task.MILITARY_SHIP_TYPES as readonly number[]).includes(shipType);
         
+        // Home-flagged vessels are always friendly, regardless of military status
         if (isHomeFlagged) return 'f';
+        
+        // Foreign vessels: military = unknown, civilian = neutral
         return isMilitary ? 'u' : 'n';
     }
 
 
 
-    private getDefaultCoTType(shipType?: number, mmsi?: number, homeFlags?: string[]): { type: string; icon?: string } {
+    private getDefaultCoTType(shipType?: number, mmsi?: number, homeFlags?: string): { type: string; icon?: string } {
         const affiliation = this.determineAffiliation(shipType, mmsi, homeFlags);
         
         if (!shipType) return { type: `a-${affiliation}-S-X` };
         
         const mapping = AIS_TYPE_TO_COT[shipType];
         if (mapping) {
-            const updatedType = mapping.type.replace(/^a-[fn]-/, `a-${affiliation}-`);
+            const updatedType = mapping.type.replace(/^a-[fnu]-/, `a-${affiliation}-`);
             return { type: updatedType, icon: mapping.icon };
         }
         
@@ -326,12 +393,28 @@ export default class Task extends ETL {
         
         return statusMap[status || 15] || 'Unknown';
     }
+    /**
+     * Main control method - processes all configured locations sequentially
+     * Queries SeaVision API for each location and submits results immediately
+     */
     async control(): Promise<void> {
         const env = await this.env(Env);
-        const allVessels: any[] = [];
         
-        // Query each location
-        for (const location of env.LOCATIONS) {
+        // Calculate delay between location queries to stay within runtime limit
+        const delay = env.LOCATIONS.length > 1 ? Math.min(env.MAX_LOCATION_RUNTIME * 1000 / env.LOCATIONS.length, env.MAX_LOCATION_RUNTIME * 1000) : 0;
+        
+        // Create lookup map for vessel overrides for efficient filtering
+        const overridesMap = new Map();
+        for (const override of env.VESSEL_OVERRIDES) {
+            if (override.MMSI) {
+                overridesMap.set(override.MMSI, override);
+            }
+        }
+        
+        // Process each location sequentially with delays between calls
+        for (let i = 0; i < env.LOCATIONS.length; i++) {
+            const location = env.LOCATIONS[i];
+            
             try {
                 const url = new URL(env.API_URL);
                 url.searchParams.set('latitude', location.latitude.toString());
@@ -357,82 +440,76 @@ export default class Task extends ETL {
                 }
                 
                 const vessels = await response.json();
-                if (Array.isArray(vessels)) {
-                    allVessels.push(...vessels);
-                } else if (env.DEBUG) {
-                    console.warn('API response is not an array:', typeof vessels);
+                if (!Array.isArray(vessels)) {
+                    if (env.DEBUG) {
+                        console.warn('API response is not an array:', typeof vessels);
+                    }
+                    continue;
                 }
+                
+                // Filter vessels by age - only include recent position reports
+                const maxAgeMs = env.MAX_AGE_HOURS * 60 * 60 * 1000;
+                const now = Date.now();
+                const filteredVessels = vessels.filter((vessel: any) => {
+                    if (!vessel.timeOfFix) return true; // Include vessels without timestamp
+                    const vesselTime = parseInt(vessel.timeOfFix) * 1000;
+                    return (now - vesselTime) <= maxAgeMs;
+                });
+                
+                // Transform vessels to features
+                const features = filteredVessels.reduce((acc: any[], vessel: any) => {
+                    try {
+                        const feature = this.transformVesselToFeature(vessel, env);
+                        
+                        // Apply vessel filtering if enabled
+                        if (env.VESSEL_FILTERING === true) {
+                            const mmsi = feature.properties.metadata?.mmsi;
+                            const vesselType = this.parseVesselType(vessel.vesselType);
+                            
+                            // Check if vessel is in overrides list (always shown if present)
+                            const inOverrides = mmsi && overridesMap.has(mmsi);
+                            
+                            // Check if vessel type is specifically enabled
+                            const typeEnabled = (
+                                (vesselType === 35 && env.SHOW_MILITARY) ||      // Military ops
+                                (vesselType === 51 && env.SHOW_SEARCH_RESCUE) || // Search & Rescue
+                                (vesselType === 55 && env.SHOW_LAW_ENFORCEMENT) || // Law Enforcement
+                                (vesselType === 58 && env.SHOW_MEDICAL)         // Medical Transport
+                            );
+                            
+                            // Skip vessel if not in overrides and type not enabled
+                            if (!inOverrides && !typeEnabled) {
+                                return acc;
+                            }
+                        }
+                        
+                        acc.push(feature);
+                    } catch (error) {
+                        console.error(`Error processing vessel ${vessel.mmsi}:`, error);
+                    }
+                    return acc;
+                }, []);
+                
+                if (env.DEBUG) {
+                    console.log(`Location ${i + 1}/${env.LOCATIONS.length}: Found ${features.length} features`);
+                }
+                
+                // Submit results immediately for this location
+                if (features.length > 0) {
+                    await this.submit({
+                        type: 'FeatureCollection',
+                        features
+                    });
+                }
+                
             } catch (error) {
                 console.error(`Error querying location ${location.latitude},${location.longitude}:`, error);
             }
-        }
-        
-        // Remove duplicates based on MMSI
-        const uniqueVessels = allVessels.reduce((acc: any[], vessel) => {
-            if (vessel && typeof vessel.mmsi === 'number' && !acc.find((v: any) => v.mmsi === vessel.mmsi)) {
-                acc.push(vessel);
-            }
-            return acc;
-        }, []);
-        
-        if (env.DEBUG) {
-            console.log(`Found ${uniqueVessels.length} unique vessels`);
-        }
-        
-        // Create lookup map for vessel overrides
-        const overridesMap = new Map();
-        for (const override of env.VESSEL_OVERRIDES) {
-            if (override.MMSI) {
-                overridesMap.set(override.MMSI, override);
-            }
-        }
-        
-        // Filter vessels by age
-        const maxAgeMs = env.MAX_AGE * 60 * 60 * 1000;
-        const now = Date.now();
-        const filteredVessels = uniqueVessels.filter((vessel: any) => {
-            if (!vessel.timeOfFix) return true;
-            const vesselTime = parseInt(vessel.timeOfFix) * 1000;
-            return (now - vesselTime) <= maxAgeMs;
-        });
-        
-        if (env.DEBUG) {
-            console.log(`Filtered ${filteredVessels.length} vessels within ${env.MAX_AGE}h age limit`);
-        }
-        
-        // Transform vessels to features
-        const allFeatures = filteredVessels.reduce((acc: any[], vessel: any) => {
-            try {
-                const feature = this.transformVesselToFeature(vessel, env);
-                acc.push(feature);
-            } catch (error) {
-                console.error(`Error processing vessel ${vessel.mmsi}:`, error);
-            }
-            return acc;
-        }, []);
-        
-        // Apply filtering if enabled
-        let features;
-        if (env.VESSEL_FILTERING === true) {
-            features = allFeatures.filter((feature: any) => {
-                const mmsi = feature.properties.metadata?.mmsi;
-                return mmsi && overridesMap.has(mmsi);
-            });
             
-            if (env.DEBUG) {
-                console.log(`Filtered ${features.length} vessels from ${allFeatures.length} total`);
+            // Add delay between locations (except for the last one)
+            if (i < env.LOCATIONS.length - 1 && delay > 0) {
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
-        } else {
-            features = allFeatures;
-        }
-        
-        if (features.length > 0) {
-            await this.submit({
-                type: 'FeatureCollection',
-                features
-            });
-        } else if (env.DEBUG) {
-            console.log('No valid features to submit');
         }
     }
     
@@ -472,6 +549,7 @@ export default class Task extends ETL {
                 course: typeof vessel.COG === 'number' ? vessel.COG : 0,
                 speed: typeof vessel.SOG === 'number' ? vessel.SOG * 0.514444 : 0, // Convert knots to m/s
                 remarks,
+                flag: this.getFlagCountry(vessel.mmsi),
                 metadata: vessel
             },
             geometry: {
