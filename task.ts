@@ -140,6 +140,7 @@ const Env = Type.Object({
     })),
     'VESSEL_OVERRIDES': Type.Array(Type.Object({
         MMSI: Type.Number({ description: 'MMSI number of the vessel' }),
+        Name: Type.Optional(Type.String({ description: 'Custom vessel name to override AIS data' })),
         type: Type.Optional(Type.String({ description: 'Custom CoT type (e.g. a-f-S-X-M)' })),
         icon: Type.Optional(Type.String({ description: 'Custom icon path' })),
         comments: Type.Optional(Type.String({ description: 'Additional comments for vessel' }))
@@ -522,16 +523,22 @@ export default class Task extends ETL {
         const navStatus = this.parseNavStatus(vessel.navStatus);
         const { type, icon } = this.getCoTTypeAndIcon(vesselType, vessel.mmsi, env.VESSEL_OVERRIDES, env.HOME_FLAGS, env.VESSEL_USE_OVERRIDES !== false);
         
-        // Check for override comments
+        // Check for override comments and name
         let additionalComments = '';
+        let vesselName = vessel.name;
         if (env.VESSEL_USE_OVERRIDES !== false && env.VESSEL_OVERRIDES) {
             const override = env.VESSEL_OVERRIDES.find(o => o.MMSI === vessel.mmsi);
-            if (override && override.comments) {
-                additionalComments = override.comments;
+            if (override) {
+                if (override.comments) {
+                    additionalComments = override.comments;
+                }
+                if (override.Name) {
+                    vesselName = override.Name;
+                }
             }
         }
         
-        const remarks = this.buildRemarks(vessel, vesselType, navStatus, additionalComments);
+        const remarks = this.buildRemarks(vessel, vesselType, navStatus, additionalComments, vesselName);
         
         const currentTime = new Date().toISOString();
         const fixTime = vessel.timeOfFix && !isNaN(parseInt(vessel.timeOfFix)) 
@@ -543,7 +550,7 @@ export default class Task extends ETL {
             type: 'Feature',
             properties: {
                 type,
-                callsign: vessel.name || `MMSI-${vessel.mmsi}`,
+                callsign: vesselName || `MMSI-${vessel.mmsi}`,
                 time: fixTime,
                 start: fixTime,
                 course: typeof vessel.COG === 'number' ? vessel.COG : 0,
@@ -589,12 +596,13 @@ export default class Task extends ETL {
         return undefined;
     }
     
-    private buildRemarks(vessel: any, vesselType?: number, navStatus?: number, additionalComments?: string): string {
+    private buildRemarks(vessel: any, vesselType?: number, navStatus?: number, additionalComments?: string, overrideName?: string): string {
         if (!vessel) return '';
         
         const parts: string[] = [];
         
-        if (vessel.name && typeof vessel.name === 'string') parts.push(`Name: ${vessel.name}`);
+        const displayName = overrideName || vessel.name;
+        if (displayName && typeof displayName === 'string') parts.push(`Name: ${displayName}`);
         if (typeof vessel.mmsi === 'number') parts.push(`MMSI: ${vessel.mmsi}`);
         if (typeof vessel.imoNumber === 'number' && vessel.imoNumber > 0) parts.push(`IMO: ${vessel.imoNumber}`);
         if (vessel.callSign && typeof vessel.callSign === 'string') parts.push(`Call Sign: ${vessel.callSign}`);
